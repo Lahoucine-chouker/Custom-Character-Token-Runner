@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Character Token Runner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #87CEEB, #98FB98);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .game-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .stats-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            color: white;
+        }
+        
+        .stat-item {
+            display: flex;
+            align-items: center;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .solana-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 8px;
+            background: linear-gradient(135deg, #9945FF, #14F195);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        .score-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 8px;
+            background: #FFD700;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        #gameCanvas {
+            border: 3px solid #333;
+            border-radius: 10px;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98FB98 100%);
+        }
+        
+        .controls {
+            margin-top: 15px;
+            font-size: 18px;
+            color: #333;
+        }
+        
+        .game-over {
+            font-size: 32px;
+            color: #FF4500;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .restart-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin-top: 10px;
+            display: none;
+            transition: transform 0.3s;
+        }
+        
+        .restart-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .upload-section {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+
+        .file-input {
+            margin: 10px;
+            padding: 8px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="upload-section">
+            <h3>Upload Your Character Image</h3>
+            <input type="file" id="characterImage" class="file-input" accept="image/*" onchange="loadCharacterImage(event)">
+            <p style="font-size: 14px; color: #666;">Upload an image to use as your character!</p>
+        </div>
+        
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="score-icon">🏆</div>
+                <span>Score: <span id="score">0</span></span>
+            </div>
+            <div class="stat-item">
+                <div class="solana-icon">S</div>
+                <span>SOL: <span id="tokens">0</span></span>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <div class="game-over" id="gameOver">Game Over!</div>
+        <button class="restart-btn" id="restartBtn" onclick="restartGame()">Play Again</button>
+        <div class="controls">Press SPACEBAR to jump (double jump available!) and collect Solana tokens!</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const tokensElement = document.getElementById('tokens');
+        const gameOverElement = document.getElementById('gameOver');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let gameRunning = true;
+        let score = 0;
+        let tokens = 0;
+        let gameSpeed = 4;
+        let frameCount = 0;
+        let characterImage = null;
+        let characterLoaded = false;
+
+        // Player
+        const player = {
+            x: 80,
+            y: 280,
+            width: 40,
+            height: 60,
+            velY: 0,
+            jumping: false,
+            grounded: true,
+            runCycle: 0,
+            jumpsUsed: 0,
+            maxJumps: 2,
+            landingSmooth: 0,
+            wasInAir: false
+        };
+
+        // Ground
+        const ground = {
+            x: 0,
+            y: canvas.height - 60,
+            width: canvas.width,
+            height: 60
+        };
+
+        // Game objects
+        let obstacles = [];
+        let solanaTokens = [];
+        let obstacleTimer = 0;
+        let tokenTimer = 0;
+
+        // Background elements
+        let clouds = [
+            {x: 100, y: 40, size: 30},
+            {x: 300, y: 60, size: 25},
+            {x: 600, y: 30, size: 35}
+        ];
+
+        const gravity = 0.7;
+        const jumpForce = -16;
+        const doubleJumpForce = -14;
+
+        function loadCharacterImage(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    characterImage = new Image();
+                    characterImage.onload = function() {
+                        characterLoaded = true;
+                        console.log('Character image loaded successfully!');
+                    };
+                    characterImage.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function createObstacle() {
+            const types = [
+                {width: 25, height: 40, color: '#8B4513'},
+                {width: 35, height: 25, color: '#696969'},
+                {width: 20, height: 50, color: '#006400'}
+            ];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            obstacles.push({
+                x: canvas.width,
+                y: ground.y - type.height,
+                width: type.width,
+                height: type.height,
+                color: type.color
+            });
+        }
+
+        function createSolanaToken() {
+            solanaTokens.push({
+                x: canvas.width,
+                y: ground.y - 80 - Math.random() * 60,
+                width: 30,
+                height: 30,
+                collected: false,
+                rotation: 0,
+                pulse: 0
+            });
+        }
+
+        function updatePlayer() {
+            if (player.grounded) {
+                player.runCycle += 0.3;
+                player.landingSmooth = Math.max(0, player.landingSmooth - 0.15);
+            }
+
+            // Apply gravity
+            if (!player.grounded || player.jumping) {
+                player.velY += gravity;
+                player.y += player.velY;
+                player.wasInAir = true;
+            }
+
+            // Ground collision with smooth landing
+            if (player.y + player.height >= ground.y) {
+                if (player.wasInAir) {
+                    // Smooth landing effect
+                    player.landingSmooth = Math.abs(player.velY) * 0.3;
+                    player.wasInAir = false;
+                }
+                
+                player.y = ground.y - player.height;
+                player.grounded = true;
+                player.jumping = false;
+                player.velY = 0;
+                player.jumpsUsed = 0; // Reset jumps when landing
+            } else {
+                player.grounded = false;
+            }
+        }
+
+        function updateObstacles() {
+            obstacleTimer++;
+            
+            const spawnRate = Math.max(80, 150 - Math.floor(score / 5));
+            if (obstacleTimer > spawnRate) {
+                createObstacle();
+                obstacleTimer = 0;
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].x -= gameSpeed;
+
+                if (obstacles[i].x + obstacles[i].width < 0) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    scoreElement.textContent = score;
+                    
+                    if (score % 8 === 0) {
+                        gameSpeed += 0.3;
+                    }
+                }
+            }
+        }
+
+        function updateSolanaTokens() {
+            tokenTimer++;
+            
+            // Create tokens less frequently than obstacles
+            if (tokenTimer > 200) {
+                createSolanaToken();
+                tokenTimer = 0;
+            }
+
+            for (let i = solanaTokens.length - 1; i >= 0; i--) {
+                const token = solanaTokens[i];
+                token.x -= gameSpeed;
+                token.rotation += 0.1;
+                token.pulse += 0.2;
+
+                // Check collision with player
+                if (!token.collected &&
+                    player.x < token.x + token.width &&
+                    player.x + player.width > token.x &&
+                    player.y < token.y + token.height &&
+                    player.y + player.height > token.y) {
+                    
+                    token.collected = true;
+                    tokens++;
+                    tokensElement.textContent = tokens;
+                    
+                    // Add score bonus for collecting tokens
+                    score += 5;
+                    scoreElement.textContent = score;
+                }
+
+                if (token.x + token.width < 0) {
+                    solanaTokens.splice(i, 1);
+                }
+            }
+        }
+
+        function updateClouds() {
+            for (let cloud of clouds) {
+                cloud.x -= 0.5;
+                if (cloud.x + cloud.size * 2 < 0) {
+                    cloud.x = canvas.width + Math.random() * 200;
+                    cloud.y = 20 + Math.random() * 80;
+                }
+            }
+        }
+
+        function checkCollisions() {
+            for (let obstacle of obstacles) {
+                if (player.x + 5 < obstacle.x + obstacle.width &&
+                    player.x + player.width - 5 > obstacle.x &&
+                    player.y + 5 < obstacle.y + obstacle.height &&
+                    player.y + player.height > obstacle.y) {
+                    gameOver();
+                }
+            }
+        }
+
+        function drawPlayer() {
+            if (characterLoaded && characterImage) {
+                // Draw custom character image with smooth animations
+                ctx.save();
+                
+                // Combine running animation with landing smoothness
+                let bobOffset = 0;
+                if (player.grounded) {
+                    bobOffset = Math.sin(player.runCycle) * 2;
+                    // Add landing smoothness effect
+                    bobOffset += player.landingSmooth * Math.sin(frameCount * 0.5);
+                } else {
+                    // Slight rotation in air for double jump effect
+                    if (player.jumpsUsed === 2) {
+                        ctx.translate(player.x + player.width/2, player.y + player.height/2);
+                        ctx.rotate(Math.sin(frameCount * 0.2) * 0.1);
+                        ctx.translate(-(player.x + player.width/2), -(player.y + player.height/2));
+                    }
+                }
+                
+                const drawY = player.y + bobOffset;
+                
+                // Add slight scale effect for landing
+                const scaleEffect = 1 + (player.landingSmooth * 0.05);
+                ctx.scale(scaleEffect, scaleEffect);
+                
+                // Draw the character image
+                ctx.drawImage(characterImage, player.x / scaleEffect, drawY / scaleEffect, 
+                             player.width / scaleEffect, player.height / scaleEffect);
+                
+                ctx.restore();
+            } else {
+                // Draw default human character with enhanced animations
+                drawDefaultHuman();
+            }
+        }
+
+        function drawDefaultHuman() {
+            const centerX = player.x + player.width / 2;
+            const baseY = player.y + player.height;
+            
+            // Enhanced animation with landing smoothness
+            let bobOffset = 0;
+            if (player.grounded) {
+                bobOffset = Math.sin(player.runCycle) * 2;
+                bobOffset += player.landingSmooth * Math.sin(frameCount * 0.5);
+            }
+            const bodyY = player.y + 20 + bobOffset;
+            
+            // Add landing compression effect
+            const compressionEffect = 1 + (player.landingSmooth * 0.1);
+            
+            // Head
+            ctx.fillStyle = '#FDBCB4';
+            ctx.beginPath();
+            ctx.arc(centerX, player.y + 12, 12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Hair
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.arc(centerX, player.y + 8, 14, Math.PI, Math.PI * 2);
+            ctx.fill();
+            
+            // Body with compression
+            ctx.fillStyle = '#FF6B6B';
+            ctx.fillRect(centerX - 8, bodyY, 16, 25 * compressionEffect);
+            
+            // Enhanced legs with smooth landing
+            ctx.fillStyle = '#4169E1';
+            const legHeight = 20 * compressionEffect;
+            ctx.fillRect(centerX - 6, bodyY + 25, 5, legHeight);
+            ctx.fillRect(centerX + 1, bodyY + 25, 5, legHeight);
+            
+            // Double jump effect - add sparkles
+            if (!player.grounded && player.jumpsUsed === 2) {
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+                for (let i = 0; i < 5; i++) {
+                    const sparkleX = centerX + Math.sin(frameCount * 0.1 + i) * 20;
+                    const sparkleY = bodyY + Math.cos(frameCount * 0.1 + i) * 15;
+                    ctx.beginPath();
+                    ctx.arc(sparkleX, sparkleY, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawSolanaTokens() {
+            for (let token of solanaTokens) {
+                if (token.collected) continue;
+                
+                ctx.save();
+                ctx.translate(token.x + token.width/2, token.y + token.height/2);
+                ctx.rotate(token.rotation);
+                
+                // Pulsing effect
+                const pulseScale = 1 + Math.sin(token.pulse) * 0.1;
+                ctx.scale(pulseScale, pulseScale);
+                
+                // Draw Solana token
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 15);
+                gradient.addColorStop(0, '#14F195');
+                gradient.addColorStop(0.5, '#9945FF');
+                gradient.addColorStop(1, '#9945FF');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, 15, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Add 'S' for Solana
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('S', 0, 0);
+                
+                ctx.restore();
+            }
+        }
+
+        function drawObstacles() {
+            for (let obstacle of obstacles) {
+                ctx.fillStyle = obstacle.color;
+                
+                if (obstacle.color === '#8B4513') {
+                    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                    ctx.fillRect(obstacle.x - 8, obstacle.y + 10, 8, 3);
+                    ctx.fillRect(obstacle.x + obstacle.width, obstacle.y + 15, 8, 3);
+                } else if (obstacle.color === '#696969') {
+                    ctx.beginPath();
+                    ctx.ellipse(obstacle.x + obstacle.width/2, obstacle.y + obstacle.height/2, 
+                               obstacle.width/2, obstacle.height/2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(obstacle.x + 8, obstacle.y + 20, 4, 30);
+                    ctx.fillStyle = '#228B22';
+                    ctx.beginPath();
+                    ctx.arc(obstacle.x + 10, obstacle.y + 15, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawGround() {
+            ctx.fillStyle = '#8FBC8F';
+            ctx.fillRect(ground.x, ground.y, ground.width, ground.height);
+            
+            ctx.fillStyle = '#228B22';
+            for (let i = 0; i < canvas.width + 40; i += 15) {
+                const grassX = (i - (frameCount * gameSpeed * 0.5)) % (canvas.width + 40);
+                const grassHeight = 4 + Math.sin(i * 0.1) * 2;
+                ctx.fillRect(grassX, ground.y, 2, grassHeight);
+                ctx.fillRect(grassX + 5, ground.y, 1, grassHeight - 1);
+                ctx.fillRect(grassX + 8, ground.y, 2, grassHeight + 1);
+            }
+        }
+
+        function drawClouds() {
+            ctx.fillStyle = 'white';
+            ctx.globalAlpha = 0.8;
+            
+            for (let cloud of clouds) {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.size * 0.6, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.size * 0.8, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.size * 1.6, cloud.y, cloud.size * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.globalAlpha = 1;
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            frameCount++;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updatePlayer();
+            updateObstacles();
+            updateSolanaTokens();
+            updateClouds();
+            checkCollisions();
+
+            drawClouds();
+            drawGround();
+            drawPlayer();
+            drawObstacles();
+            drawSolanaTokens();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function jump() {
+            if (gameRunning && player.jumpsUsed < player.maxJumps) {
+                if (player.jumpsUsed === 0) {
+                    // First jump (from ground)
+                    player.velY = jumpForce;
+                } else {
+                    // Double jump (in air)
+                    player.velY = doubleJumpForce;
+                }
+                
+                player.jumpsUsed++;
+                player.grounded = false;
+                player.jumping = true;
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            gameOverElement.style.display = 'block';
+            restartBtn.style.display = 'inline-block';
+        }
+
+        function restartGame() {
+            gameRunning = true;
+            score = 0;
+            tokens = 0;
+            gameSpeed = 4;
+            obstacles = [];
+            solanaTokens = [];
+            obstacleTimer = 0;
+            tokenTimer = 0;
+            frameCount = 0;
+            
+            player.x = 80;
+            player.y = 280;
+            player.velY = 0;
+            player.jumping = false;
+            player.grounded = true;
+            player.runCycle = 0;
+            player.jumpsUsed = 0;
+            player.landingSmooth = 0;
+            player.wasInAir = false;
+            
+            scoreElement.textContent = score;
+            tokensElement.textContent = tokens;
+            gameOverElement.style.display = 'none';
+            restartBtn.style.display = 'none';
+            
+            gameLoop();
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.code === 'Space') {
+                event.preventDefault();
+                jump();
+            }
+        });
+
+        canvas.addEventListener('touchstart', function(event) {
+            event.preventDefault();
+            jump();
+        });
+
+        gameLoop();
+    </script>
+</body>
+</html>
