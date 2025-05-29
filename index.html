@@ -412,27 +412,42 @@
 
         function playJumpSound() {
             if (!isMuted) {
+                jumpSound.fallbackSrc = 'https://www.myinstants.com/media/sounds/jump.mp3';
                 jumpSound.currentTime = 0;
                 jumpSound.play().catch(error => {
                     console.log('Error playing jump sound:', error);
+                    // Attempt to reload and play the sound if it fails
+                    jumpSound.src = jumpSound.fallbackSrc;
+                    jumpSound.load();
+                    jumpSound.play().catch(err => console.log('Retry failed:', err));
                 });
             }
         }
 
         function playTokenSound() {
             if (!isMuted) {
+                tokenSound.fallbackSrc = 'https://www.myinstants.com/media/sounds/coin.mp3';
                 tokenSound.currentTime = 0;
                 tokenSound.play().catch(error => {
                     console.log('Error playing token sound:', error);
+                    // Attempt to reload and play the sound if it fails
+                    tokenSound.src = tokenSound.fallbackSrc;
+                    tokenSound.load();
+                    tokenSound.play().catch(err => console.log('Retry failed:', err));
                 });
             }
         }
 
         function playGameOverMusic() {
             if (!isMuted) {
+                gameOverMusic.fallbackSrc = 'https://www.myinstants.com/media/sounds/gameover.mp3';
                 gameOverMusic.currentTime = 0;
                 gameOverMusic.play().catch(error => {
                     console.log('Error playing game over music:', error);
+                    // Attempt to reload and play the sound if it fails
+                    gameOverMusic.src = gameOverMusic.fallbackSrc;
+                    gameOverMusic.load();
+                    gameOverMusic.play().catch(err => console.log('Retry failed:', err));
                 });
             }
         }
@@ -843,7 +858,7 @@
         function gameOver() {
             gameRunning = false;
             gameOverElement.style.display = 'block';
-            restartBtn.style.display = 'inline-block';
+            restartBtn.style.display = 'block'; // Ensure Play Again button is visible
             if (currentMusic) {
                 currentMusic.pause();
                 currentMusic.currentTime = 0;
